@@ -1,0 +1,164 @@
+# ScentSage Development Prompt
+
+You are an AI assistant helping develop ScentSage, a cologne recommendation system. The system has two main functions:
+1. Daily wear recommendation based on collection photos, weather, and mood
+2. New cologne recommendations based on collection analysis
+
+## Phase 1: Data Collection Script
+
+Create a Python script that will:
+1. Scrape cologne data from multiple sources (Fragrantica, Basenotes, etc.) including:
+   - Fragrance name and brand
+   - Note pyramid (top, heart, base)
+   - Season recommendations
+   - Weather suitability
+   - Community ratings
+   - Occasion recommendations
+   - Release year
+   - Primary accords
+   - Longevity and sillage data
+
+2. Structure the data for fine-tuning, including:
+   - Note relationships and similarities
+   - Weather-note associations
+   - Mood-note correlations
+   - Occasion appropriateness
+
+## Phase 2: Photo Recognition System
+
+Develop a system that:
+1. Uses GPT-4 Vision to:
+   - Identify cologne bottles from photos
+   - Extract brand and fragrance names
+   - Handle partial views and reflections
+   - Manage multiple bottles in one image
+
+2. Creates a structured collection database:
+   - Match recognized colognes with scraped data
+   - Store user's collection details
+   - Track additions and removals
+
+## Phase 3: Recommendation Engine
+
+Create a recommendation system that:
+
+1. Daily Wear Recommendations:
+   ```python
+   def get_daily_recommendation(
+       collection_photo,  # Photo of collection
+       weather: dict,    # Temperature, humidity, conditions
+       mood: str,        # User's current mood
+       occasion: str     # Optional occasion
+   ) -> dict:
+       """
+       Returns: {
+           'recommendation': str,          # Cologne name
+           'reasoning': str,               # Brief explanation
+           'weather_match': float,         # 0-1 score
+           'mood_match': float,           # 0-1 score
+           'alternative': str             # Backup suggestion
+       }
+       """
+   ```
+
+2. New Purchase Recommendations:
+   ```python
+   def suggest_new_cologne(
+       collection_photo,     # Photo of collection
+       preference: str = "", # Similar/different/complement
+       budget: float = None  # Optional price limit
+   ) -> dict:
+       """
+       Returns: {
+           'suggestions': List[str],     # Top 3 recommendations
+           'gap_analysis': str,          # Brief collection analysis
+           'reasoning': str,             # Brief explanation
+           'notes_missing': List[str]    # Underrepresented notes
+       }
+       """
+   ```
+
+## Phase 4: Fine-tuning Process
+
+Guidelines for fine-tuning an open-source LLM:
+1. Data preparation:
+   - Convert scraped data to training format
+   - Create synthetic Q&A pairs
+   - Generate context-recommendation pairs
+
+2. Training focus:
+   - Weather-fragrance relationships
+   - Mood-scent associations
+   - Note combinations and harmonies
+   - Collection diversity analysis
+
+3. Evaluation metrics:
+   - Recommendation relevance
+   - Explanation quality
+   - Weather/mood appropriateness
+   - Collection analysis accuracy
+
+## Initial Development Steps
+
+1. Create the data scraping script:
+   ```python
+   def scrape_fragrance_data(sources=['fragrantica', 'basenotes']):
+       """
+       Implement scraping logic for each source
+       Handle rate limiting and data validation
+       Merge data from multiple sources
+       Export structured dataset
+       """
+   ```
+
+2. Develop the photo recognition module:
+   ```python
+   def process_collection_photo(image_path):
+       """
+       Use GPT-4 Vision API
+       Extract cologne identifiers
+       Match with database
+       Return structured collection data
+       """
+   ```
+
+3. Build basic recommendation logic:
+   ```python
+   def create_recommendation_vectors(
+       notes_data,
+       weather_mappings,
+       mood_mappings
+   ):
+       """
+       Create embedding vectors for:
+       - Note combinations
+       - Weather appropriateness
+       - Mood associations
+       Return vectorized representation
+       """
+   ```
+
+## Expected Output Format
+
+For daily recommendations:
+```json
+{
+    "recommendation": "Fragrance Name",
+    "reasoning": "Brief explanation of choice",
+    "weather_match": 0.85,
+    "mood_match": 0.9,
+    "alternative": "Backup fragrance name"
+}
+```
+
+For collection additions:
+```json
+{
+    "suggestions": ["Frag1", "Frag2", "Frag3"],
+    "gap_analysis": "Brief analysis of collection gaps",
+    "reasoning": "Explanation of suggestions",
+    "notes_missing": ["Note1", "Note2"]
+}
+```
+
+Begin by implementing the data scraping script, focusing on clean, structured data collection that will support both immediate recommendation needs and future fine-tuning requirements.

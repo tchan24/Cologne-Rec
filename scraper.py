@@ -2,15 +2,16 @@
 
 import aiohttp
 import asyncio
-import pandas as pd
 import logging
 import json
+import pandas as pd
 from bs4 import BeautifulSoup
 from typing import List, Dict, Optional
 from datetime import datetime
-from ratelimit import limits, sleep_and_retry
 from dataclasses import dataclass
 from urllib.parse import urljoin
+import backoff  # For exponential backoff on failures
+import aiofiles  # For async file operations
 
 # Configure logging
 logging.basicConfig(
@@ -40,11 +41,24 @@ class FragranceData:
     weather_suitability: Dict[str, float]
     source_urls: List[str]
 
+class ScrapingError(Exception):
+    """Custom exception for scraping errors"""
+    pass
+
 class FragranceScraper:
     def __init__(self, config_path: str = 'scraper_config.json'):
+        """
+        Initialize the fragrance scraper.
+        
+        Args:
+            config_path: Path to configuration JSON file
+        """
         self.config = self._load_config(config_path)
         self.session = None
         self.data_cache = {}
+        self.proxy_list = self.config.get('proxies', [])
+        self.current_proxy_index = 0
+        self.failed_urls = set()
         
     def _load_config(self, config_path: str) -> dict:
         """Load scraping configuration including API keys and rate limits."""
@@ -61,13 +75,36 @@ class FragranceScraper:
                 'urls': {
                     'fragrantica_base': 'https://www.fragrantica.com',
                     'basenotes_base': 'https://www.basenotes.net'
-                }
+                },
+                'retry_attempts': 3,
+                'retry_delay': 5,
+                'timeout': 30
             }
 
+    def _get_next_proxy(self) -> Optional[str]:
+        """Get the next proxy from the rotation."""
+        if not self.proxy_list:
+            return None
+        
+        self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxy_list)
+        return self.proxy_list[self.current_proxy_index]
+
     async def __aenter__(self):
-        """Set up async context manager."""
+        """Set up async context manager with custom headers and retry logic."""
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        }
+        
+        timeout = aiohttp.ClientTimeout(total=self.config.get('timeout', 30))
         self.session = aiohttp.ClientSession(
-            headers={'User-Agent': 'ScentSage Research Bot v1.0'}
+            headers=headers,
+            timeout=timeout
         )
         return self
 
@@ -76,94 +113,41 @@ class FragranceScraper:
         if self.session:
             await self.session.close()
 
-    @sleep_and_retry
-    @limits(calls=10, period=60)
-    async def _fetch_fragrantica_data(self, fragrance_url: str) -> FragranceData:
-        """Fetch and parse data from Fragrantica."""
-        if fragrance_url in self.data_cache:
-            return self.data_cache[fragrance_url]
-
-        async with self.session.get(fragrance_url) as response:
-            if response.status != 200:
-                raise Exception(f"Failed to fetch {fragrance_url}: {response.status}")
-            
-            html = await response.text()
-            soup = BeautifulSoup(html, 'html.parser')
-            
-            # Extract basic information
-            name = self._extract_fragrance_name(soup)
-            brand = self._extract_brand(soup)
-            
-            # Extract note pyramid
-            notes = self._extract_notes(soup)
-            
-            # Extract additional data
-            data = FragranceData(
-                name=name,
-                brand=brand,
-                release_year=self._extract_release_year(soup),
-                notes=notes,
-                seasons=self._extract_seasons(soup),
-                occasions=self._extract_occasions(soup),
-                ratings=self._extract_ratings(soup),
-                longevity=self._extract_longevity(soup),
-                sillage=self._extract_sillage(soup),
-                accords=self._extract_accords(soup),
-                weather_suitability=self._extract_weather_suitability(soup),
-                source_urls=[fragrance_url]
-            )
-            
-            self.data_cache[fragrance_url] = data
-            return data
-
-    def _extract_notes(self, soup: BeautifulSoup) -> List[FragranceNote]:
-        """Extract and categorize fragrance notes."""
-        notes = []
-        note_sections = {
-            'top': soup.find('div', {'class': 'top-notes'}),
-            'heart': soup.find('div', {'class': 'heart-notes'}),
-            'base': soup.find('div', {'class': 'base-notes'})
-        }
+    @backoff.on_exception(
+        backoff.expo,
+        (aiohttp.ClientError, asyncio.TimeoutError),
+        max_tries=3
+    )
+    async def _fetch_page(self, url: str) -> str:
+        """
+        Fetch a page with automatic retries and proxy rotation.
         
-        for category, section in note_sections.items():
-            if section:
-                note_elements = section.find_all('div', {'class': 'note'})
-                for element in note_elements:
-                    notes.append(FragranceNote(
-                        name=element.get_text().strip(),
-                        category=category,
-                        intensity=self._extract_note_intensity(element)
-                    ))
+        Args:
+            url: URL to fetch
+            
+        Returns:
+            Page content as string
         
-        return notes
-
-    def _extract_weather_suitability(self, soup: BeautifulSoup) -> Dict[str, float]:
-        """Extract weather suitability ratings."""
-        weather_map = {
-            'sunny': ['warm', 'hot', 'summer'],
-            'rainy': ['wet', 'rain', 'spring'],
-            'cold': ['winter', 'cold', 'cool']
-        }
+        Raises:
+            ScrapingError: If page cannot be fetched after retries
+        """
+        proxy = self._get_next_proxy()
         
-        suitability = {}
-        weather_div = soup.find('div', {'class': 'weather-ratings'})
-        if weather_div:
-            for weather, terms in weather_map.items():
-                ratings = []
-                for term in terms:
-                    rating_elem = weather_div.find('div', {'data-weather': term})
-                    if rating_elem:
-                        try:
-                            ratings.append(float(rating_elem.get('data-rating', 0)))
-                        except ValueError:
-                            continue
-                
-                if ratings:
-                    suitability[weather] = sum(ratings) / len(ratings)
+        try:
+            async with self.session.get(url, proxy=proxy) as response:
+                if response.status == 200:
+                    return await response.text()
+                elif response.status == 429:  # Too Many Requests
+                    retry_after = int(response.headers.get('Retry-After', 60))
+                    logger.warning(f"Rate limited. Waiting {retry_after} seconds...")
+                    await asyncio.sleep(retry_after)
+                    raise ScrapingError("Rate limited")
                 else:
-                    suitability[weather] = 0.0
-                    
-        return suitability
+                    raise ScrapingError(f"HTTP {response.status}: {url}")
+        except Exception as e:
+            logger.error(f"Error fetching {url}: {str(e)}")
+            self.failed_urls.add(url)
+            raise
 
     async def scrape_fragrance_data(
         self,
@@ -198,11 +182,12 @@ class FragranceScraper:
                     logger.error(f"Error scraping {source}: {str(e)}")
                     continue
 
-        # Convert to DataFrame and process
+        # Process and save data
         df = self._process_scraped_data(all_data)
+        await self._save_raw_data(all_data)
         
-        # Save raw data for backup
-        self._save_raw_data(all_data)
+        # Log scraping summary
+        self._log_scraping_summary(df)
         
         return df
 
@@ -223,7 +208,7 @@ class FragranceScraper:
                 'sources': ','.join(frag.source_urls)
             }
             
-            # Process notes
+            # Process notes by category
             for category in ['top', 'heart', 'base']:
                 category_notes = [n for n in frag.notes if n.category == category]
                 flat_data[f'{category}_notes'] = ','.join(n.name for n in category_notes)
@@ -252,7 +237,7 @@ class FragranceScraper:
         
         return df
 
-    def _save_raw_data(self, data: List[FragranceData], path: str = 'raw_data/'):
+    async def _save_raw_data(self, data: List[FragranceData], path: str = 'raw_data/'):
         """Save raw scraped data for backup and reprocessing."""
         import os
         from datetime import datetime
@@ -263,6 +248,7 @@ class FragranceScraper:
         # Save data with timestamp
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f'fragrance_data_{timestamp}.json'
+        filepath = os.path.join(path, filename)
         
         # Convert dataclass objects to dict
         serializable_data = [
@@ -284,9 +270,20 @@ class FragranceScraper:
             for d in data
         ]
         
-        with open(os.path.join(path, filename), 'w') as f:
-            json.dump(serializable_data, f, indent=2)
+        # Async file writing
+        async with aiofiles.open(filepath, 'w') as f:
+            await f.write(json.dumps(serializable_data, indent=2))
+        
+        logger.info(f"Raw data saved to {filepath}")
 
+    def _log_scraping_summary(self, df: pd.DataFrame):
+        """Log summary statistics of the scraping operation."""
+        logger.info(f"Scraping completed:")
+        logger.info(f"Total fragrances scraped: {len(df)}")
+        logger.info(f"Unique brands: {df['brand'].nunique()}")
+        logger.info(f"Date range: {df['release_year'].min()} - {df['release_year'].max()}")
+        logger.info(f"Failed URLs: {len(self.failed_urls)}")
+        
 if __name__ == "__main__":
     async def main():
         scraper = FragranceScraper()
@@ -297,6 +294,6 @@ if __name__ == "__main__":
         
         # Save processed data
         df.to_csv('fragrance_data.csv', index=False)
-        logger.info(f"Scraped data for {len(df)} fragrances")
+        logger.info(f"Scraped data saved to fragrance_data.csv")
 
     asyncio.run(main())
