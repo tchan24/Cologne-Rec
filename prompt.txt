@@ -14,7 +14,6 @@ Create a Python script that will:
    - Weather suitability
    - Community ratings
    - Occasion recommendations
-   - Release year
    - Primary accords
    - Longevity and sillage data
 
