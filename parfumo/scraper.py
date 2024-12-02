@@ -208,8 +208,8 @@ def main():
     
     if not df.empty:
         # Save to CSV
-        df.to_csv('parfumo/top_100_mens_colognes.csv', index=False)
-        logging.info("Data saved to 'top_100_mens_colognes.csv'")
+        df.to_csv('parfumo/top_100_mens.csv', index=False)
+        logging.info("Data saved to 'top_100_mens.csv'")
         logging.info(f"Number of colognes scraped: {len(df)}")
         logging.info(f"Columns in the dataset: {df.columns.tolist()}")
     else:

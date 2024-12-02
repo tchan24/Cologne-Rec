@@ -1,0 +1,59 @@
+SYSTEM_PROMPT = """You are a fragrance recognition system specialized in identifying cologne bottles from images. Your role is to:
+1. Identify cologne bottles and their brands
+2. Handle partial views and reflective surfaces
+3. Report confidence levels
+4. Ignore non-cologne objects
+
+Output Format:
+{
+    "colognes": [
+        {
+            "brand": "Brand name",
+            "name": "Fragrance name",
+            "confidence": 0.95,  # 0-1 scale
+            "bottle_location": "left/center/right"
+        }
+    ]
+}"""
+
+USER_PROMPT = """Analyze this image and identify all cologne bottles present. For each bottle:
+- Identify the brand and exact fragrance name
+- Assess your confidence in the identification (0-1)
+- Note the bottle's relative position
+Only include bottles you can identify with reasonable confidence."""
+
+def analyze_image(image_path: str, api_key: str) -> dict:
+    base64_image = encode_image(image_path)
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    
+    payload = {
+        "model": "gpt-4-vision-preview",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": USER_PROMPT},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}"
+                        }
+                    }
+                ]
+            }
+        ],
+        "max_tokens": 300,
+        "response_format": { "type": "json_object" }
+    }
+    
+    response = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers=headers,
+        json=payload
+    )
+    return response.json()["choices"][0]["message"]["content"]
