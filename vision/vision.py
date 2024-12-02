@@ -3,15 +3,15 @@ import requests
 import pandas as pd
 from typing import List, Dict
 from pathlib import Path
+import json
 
-# System and user prompts
-SYSTEM_PROMPT = """You are a fragrance recognition system specialized in identifying cologne bottles from images. Your role is to:
-1. Identify cologne bottles and their brands
-2. Handle partial views and reflective surfaces
-3. Report confidence levels
-4. Ignore non-cologne objects
+SYSTEM_PROMPT = """You are a fragrance recognition system. Analyze cologne bottles and output a JSON response with:
+1. Brand name
+2. Fragrance name
+3. Confidence level (0-1)
+4. Location in image"""
 
-Output Format:
+USER_PROMPT = """Analyze this image and return a JSON object with cologne bottles identified. Format:
 {
     "colognes": [
         {
@@ -22,12 +22,6 @@ Output Format:
         }
     ]
 }"""
-
-USER_PROMPT = """Analyze this image and identify all cologne bottles present. For each bottle:
-- Identify the brand and exact fragrance name
-- Assess your confidence in the identification (0-1)
-- Note the bottle's relative position
-Only include bottles you can identify with reasonable confidence."""
 
 def encode_image(image_path: str) -> str:
     with open(image_path, "rb") as image_file:
@@ -42,7 +36,7 @@ def analyze_image(image_path: str, api_key: str) -> dict:
     }
     
     payload = {
-        "model": "gpt-4-vision-preview",
+        "model": "gpt-4o-mini",
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
@@ -67,7 +61,13 @@ def analyze_image(image_path: str, api_key: str) -> dict:
         headers=headers,
         json=payload
     )
-    return response.json()["choices"][0]["message"]["content"]
+    json_response = response.json()
+    print("API Response:", json_response)
+    
+    if 'error' in json_response:
+        raise Exception(f"API Error: {json_response['error']['message']}")
+        
+    return json.loads(json_response["choices"][0]["message"]["content"])
 
 class CologneRecognizer:
     def __init__(self, database_path: str):
@@ -94,10 +94,9 @@ class CologneRecognizer:
         
         return matched_colognes
 
-# Test the system
 if __name__ == "__main__":
-    api_key = "your-openai-api-key"  # Replace with your actual API key
-    recognizer = CologneRecognizer("top_100_mens.csv")
+    api_key = "-"
+    recognizer = CologneRecognizer("raw_data/top_100_mens.csv")
     recognizer.api_key = api_key
     
     image_path = input("Enter path to cologne image: ")
