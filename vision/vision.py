@@ -82,10 +82,18 @@ class CologneRecognizer:
         matched_colognes = []
         
         for cologne in detected_colognes:
-            match = self.cologne_db[
-                (self.cologne_db['brand'].str.contains(cologne['brand'], case=False)) &
-                (self.cologne_db['perfume'].str.contains(cologne['name'], case=False))
-            ]
+            # Handle brand variations
+            brand_terms = cologne['brand'].lower().split()
+            brand_match = self.cologne_db['brand'].str.lower().apply(
+                lambda x: any(term in x for term in brand_terms)
+            )
+            
+            # Match fragrance name
+            name_match = self.cologne_db['perfume'].str.contains(
+                cologne['name'], case=False, regex=False
+            )
+            
+            match = self.cologne_db[brand_match & name_match]
             
             if not match.empty:
                 cologne_data = match.iloc[0].to_dict()
@@ -95,7 +103,7 @@ class CologneRecognizer:
         return matched_colognes
 
 if __name__ == "__main__":
-    api_key = "-"
+    api_key = ""
     recognizer = CologneRecognizer("raw_data/top_100_mens.csv")
     recognizer.api_key = api_key
     
