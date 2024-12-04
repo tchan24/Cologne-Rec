@@ -173,34 +173,50 @@ class CologneRecommender:
         if budget:
             available_colognes = available_colognes[available_colognes['value'] * 100 <= budget]
             
-        # Remove colognes already in collection
-        collection_names = [c['perfume'] for c in collection]
-        available_colognes = available_colognes[~available_colognes['perfume'].isin(collection_names)]
+        # Remove colognes already in collection and similar named ones
+        collection_names = [c['perfume'].lower() for c in collection]
+        collection_brands = [c['brand'].lower() for c in collection]
+        available_colognes = available_colognes[~available_colognes['perfume'].str.lower().isin(collection_names)]
+        # Remove variants of same fragrance (e.g., if you have Sauvage Elixir, remove all Sauvage versions)
+        available_colognes = available_colognes[~available_colognes['perfume'].str.lower().apply(
+            lambda x: any(name.split()[0] in x for name in collection_names)
+        )]
         
         scores = []
         for _, cologne in available_colognes.iterrows():
             cologne_accords = cologne['accords'].strip('[]').split(',')
-            cologne_accords = [a.strip().strip("'") for a in cologne_accords]
+            cologne_accords = [a.strip().strip("'").lower() for a in cologne_accords]
             
             cologne_notes = cologne['notes'].strip('[]').split(',')
-            cologne_notes = [n.strip().strip("'") for n in cologne_notes]
+            cologne_notes = [n.strip().strip("'").lower() for n in cologne_notes]
             
             # Calculate similarity scores
-            accord_score = sum(profile['common_accords'].get(accord, 0) for accord in cologne_accords)
-            note_score = sum(profile['common_notes'].get(note, 0) for note in cologne_notes)
-            season_score = profile['seasons'].get(cologne['season'], 0)
-            occasion_score = profile['occasions'].get(cologne['occasion'], 0)
+            accord_similarity = len(set(cologne_accords) & set(profile['common_accords'].keys())) / len(cologne_accords)
+            note_similarity = len(set(cologne_notes) & set(profile['common_notes'].keys())) / len(cologne_notes)
+            season_similarity = 1.0 if cologne['season'] in profile['seasons'] else 0.0
+            occasion_similarity = 1.0 if cologne['occasion'] in profile['occasions'] else 0.0
             
-            total_score = accord_score + note_score + season_score + occasion_score
-            
-            if not want_similar:
-                # Invert score for different recommendations
-                total_score = 1 / (total_score + 1)
+            if want_similar:
+                total_score = (accord_similarity + note_similarity + season_similarity + occasion_similarity) / 4
+            else:
+                # For different recommendations, prefer:
+                # - Different seasons than most common in collection
+                # - Different occasions
+                # - Different accords/notes profile
+                common_season = max(profile['seasons'].items(), key=lambda x: x[1])[0]
+                common_occasion = max(profile['occasions'].items(), key=lambda x: x[1])[0]
                 
+                season_difference = 0.0 if cologne['season'] == common_season else 1.0
+                occasion_difference = 0.0 if cologne['occasion'] == common_occasion else 1.0
+                accord_difference = 1 - accord_similarity
+                note_difference = 1 - note_similarity
+                
+                total_score = (accord_difference + note_difference + season_difference + occasion_difference) / 4
+            
             scores.append((total_score, cologne))
             
-        # Sort by score (highest first for similar, lowest first for different)
-        scores.sort(key=lambda x: x[0], reverse=want_similar)
+        # Sort by score
+        scores.sort(key=lambda x: x[0], reverse=True)
         
         # Get top 3 recommendations
         recommendations = []
@@ -217,9 +233,9 @@ class CologneRecommender:
             })
             
             if want_similar:
-                reasons.append(f"Similar {cologne['season']} fragrance with matching {cologne['accords']} accords")
+                reasons.append(f"Shares similar {cologne['season']}/{cologne['occasion']} profile with {cologne['accords']} accords")
             else:
-                reasons.append(f"Contrasting {cologne['season']} fragrance with different {cologne['accords']} profile")
+                reasons.append(f"Offers contrast with {cologne['season']}/{cologne['occasion']} wearing occasions and unique {cologne['accords']} profile")
         
         return {
             'recommendations': recommendations,
