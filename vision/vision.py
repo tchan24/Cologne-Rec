@@ -103,7 +103,7 @@ class CologneRecognizer:
         return matched_colognes
 
 if __name__ == "__main__":
-    api_key = ""
+    api_key = "api"
     recognizer = CologneRecognizer("raw_data/top_100_mens.csv")
     recognizer.api_key = api_key
     
