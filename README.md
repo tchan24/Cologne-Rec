@@ -34,6 +34,8 @@ ScentSage is an AI-powered cologne recommendation system that helps users make i
 COLOGNE-REC/
 ├── final/
 │   └── full.py              # Main application file
+├── network/
+│   └── network.py              # Network analysis
 ├── parfumo/
 │   └── scraper.py           # Fragrance data scraper
 ├── raw_data/
@@ -48,7 +50,8 @@ COLOGNE-REC/
 │   ├── vision.py          # Vision recognition system
 │   ├── prompt.txt         # GPT-4 Vision prompts
 │   └── test.jpg           # Test image
-└── README.md
+├── README.md
+└── requirements.txt        # Required Python packages
 ```
 
 ## Technical Components

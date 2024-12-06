@@ -9,6 +9,10 @@ numpy==1.24.3
 # Image processing (for vision module)
 Pillow==10.0.0
 
+# Network
+networkx==3.1
+matplotlib==3.7.2
+
 # Optional - for data analysis and cleaning
 openpyxl==3.1.2  # for Excel file support
 beautifulsoup4==4.12.2  # for web scraping
